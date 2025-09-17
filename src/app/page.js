@@ -9,6 +9,32 @@ export default function Home() {
   const [messages, setMessages] = useState([])
   const chatContainerRef = useRef(null)
 
+  // client-side auth check
+  useEffect(() => {
+    async function checkAuth() {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) {
+        window.location.href = "/login" // redirect if not logged in
+      }
+    }
+    checkAuth()
+  }, [])
+  
+  // Format timestamp to Jakarta
+  function formatTimestamp(utcString) {
+    const date = new Date(utcString);
+
+    // Force to Asia/Jakarta timezone
+    return date.toLocaleString("id-ID", {
+      timeZone: "Asia/Jakarta",
+      hour: "2-digit",
+      minute: "2-digit",
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    });
+  }
+
   // Auto-scroll when messages change
   useEffect(() => {
     if (chatContainerRef.current) {
@@ -55,8 +81,36 @@ export default function Home() {
     }
   }
 
+  const handleLogout = async () => {
+    const { error } = await supabase.auth.signOut()
+    if (error) {
+      console.error('Error logging out:', error.message)
+    } else{
+      window.location.href = '/login'
+    }
+  }
+
   return (
     <div style={{ display: 'flex', height: '100vh' }}>
+      {/* ✅ Logout button */}
+      <button
+        onClick={handleLogout}
+        style={{
+          position: 'absolute',
+          top: '10px',
+          right: '10px',
+          background: '#e53e3e',
+          color: 'white',
+          padding: '8px 16px',
+          border: 'none',
+          borderRadius: '5px',
+          cursor: 'pointer',
+          zIndex: 10,
+        }}
+      >
+        Logout
+      </button>
+
       {/* Sidebar */}
       <aside style={{ width: '450px', background: '#2068afff', padding: '10px', color: 'white' }}>
         <h2 style={{ padding: '15px', borderBottom: '1px solid #1e293b' }}>
@@ -110,19 +164,26 @@ export default function Home() {
           <div
             key={i}
             style={{
-            alignSelf: msg.sender === 'user' ? 'flex-end' : 'flex-start',
-            background: msg.sender === 'user' ? '#2563eb' : '#334155',
-            color: 'white',
-            padding: '10px 15px',
-            borderRadius: '12px',
-            maxWidth: '70%',
-            wordBreak: 'break-word'
-          }}
-        >
-          <p style={{ margin: 0 }}>{msg.message}</p>
-          <small style={{ fontSize: '10px', opacity: 0.7, display: 'block', marginTop: '5px' }}>
-            {new Date(msg.created_at).toLocaleString()}
+              display: "flex",
+              justifyContent: msg.sender === "user" ? "flex-end" : "flex-start",
+              marginBottom: "8px",
+            }}
+          >
+          <div
+            style={{
+              background: msg.sender === 'user' ? '#007bff' : '#e5e5ea',
+              color: msg.sender === "user" ? "white" : "black",
+              padding: '10px 14px',
+              borderRadius: '18px',
+              maxWidth: '60%',
+              wordBreak: 'break-word'
+            }}
+          >
+            <p style={{ margin: 0 }}>{msg.message}</p>
+            <small style={{ fontSize: '11px', opacity: 0.7}}>
+              {formatTimestamp(msg.created_at)}
           </small>
+        </div>
         </div>
       ))
     ) : (
