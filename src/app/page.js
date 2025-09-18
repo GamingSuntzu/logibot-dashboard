@@ -7,6 +7,7 @@ export default function Home() {
   const [users, setUsers] = useState([])
   const [selectedUser, setSelectedUser] = useState(null)
   const [messages, setMessages] = useState([])
+  const [clientId, setClientId] = useState(null)  // ✅ dynamic client id
   const chatContainerRef = useRef(null)
 
   // client-side auth check
@@ -15,6 +16,20 @@ export default function Home() {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) {
         window.location.href = "/login" // redirect if not logged in
+        return
+      }
+
+      // Lookp clientId using auth_id
+      const { data: client, error } = await supabase
+        .from('clients')
+        .select('id')
+        .eq('auth_id', session.user.id)
+        .single()
+      
+      if (error) {
+        console.error("Error finding client:", error)
+      } else {
+        setClientId(client.id)  // save client id in state
       }
     }
     checkAuth()
@@ -49,19 +64,19 @@ export default function Home() {
       const { data, error } = await supabase
         .from('chat_logs')
         .select('end_user_id')
-        .eq('client_id', '1ee8fd80-5a36-4f01-8efe-ca0fa76f18ed')
+        .eq('client_id', clientId)
         .order('created_at', { ascending: false })
 
       if (!error) {
         const uniqueUsers = [...new Set(data.map(u => u.end_user_id))]
         setUsers(uniqueUsers)
       } else {
-        console.error(error)
+        console.log("Supabase error:", error)
       }
     }
 
     fetchUsers()
-  }, [])
+  }, [clientId])
 
   // Fetch messages when a user is clicked
   const fetchMessages = async (userId) => {
@@ -70,7 +85,7 @@ export default function Home() {
     const { data, error } = await supabase
       .from('chat_logs')
       .select('message, sender, created_at')
-      .eq('client_id', '1ee8fd80-5a36-4f01-8efe-ca0fa76f18ed')
+      .eq('client_id', clientId)
       .eq('end_user_id', userId)
       .order('created_at', { ascending: true })
 
