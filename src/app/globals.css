@@ -28,3 +28,17 @@ body {
 .loginTitle {
   color: black;
 }
+
+.loginButton {
+  width: 100%;
+  padding: 10px;
+  background: #215f9a;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.loginButton:hover {
+  background: #154a7d; /* darker blue */
+}

@@ -127,7 +127,7 @@ export default function Home() {
       </button>
 
       {/* Sidebar */}
-      <aside style={{ width: '450px', background: '#2068afff', padding: '10px', color: 'white' }}>
+      <aside style={{ width: '450px', background: '#215f9aff', padding: '10px', color: 'white' }}>
         <h2 style={{ padding: '15px', borderBottom: '1px solid #1e293b' }}>
         Users</h2>
         <div
@@ -145,7 +145,7 @@ export default function Home() {
                 padding: '8px',
                 borderBottom: '1px solid #ccc',
                 cursor: 'pointer',
-                background: selectedUser === user ? '#1d4ed8' : 'transparent'
+                background: selectedUser === user ? '#154a7d' : 'transparent'
               }}
               onClick={() => fetchMessages(user)}
             >

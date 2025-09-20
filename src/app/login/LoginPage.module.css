@@ -1,0 +1,76 @@
+.loginButton {
+  width: 100%;
+  padding: 10px;
+  background: #215f9a;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.loginButton:hover {
+  background: #154a7d; /* darker blue */
+}
+
+.container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+  background: #111;
+}
+
+.loginWrapper {
+  text-align: center;
+}
+
+.logo {
+  margin-bottom: 15px;
+}
+
+.loginBox {
+  background: #fff;
+  padding: 30px;
+  border-radius: 8px;
+  width: 300px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+}
+
+.title {
+  margin-bottom: 15px;
+}
+
+.input {
+  width: 100%;
+  padding: 8px;
+  margin: 5px 0;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  color: #000;
+}
+
+.passwordWrapper {
+  position: relative;
+}
+
+.eyeButton {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  color: #666;
+}
+
+.eyeButton:hover {
+  color: #215f9a;
+}
+
+.error {
+  color: red;
+  font-size: 14px;
+  margin: 8px 0;
+}
