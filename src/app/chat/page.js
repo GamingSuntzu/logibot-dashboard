@@ -63,12 +63,21 @@ export default function Home() {
     const fetchUsers = async () => {
       const { data, error } = await supabase
         .from('chat_logs')
-        .select('end_user_id')
+        .select('end_user_id, phone_number')
         .eq('client_id', clientId)
         .order('created_at', { ascending: false })
 
       if (!error) {
-        const uniqueUsers = [...new Set(data.map(u => u.end_user_id))]
+        const uniqueUsers = Array.from(
+          new Map(
+            data.map(u => {
+              // use phone_number if available, otherwise fall back to end_user_id
+              const id = u.phone_number || u.end_user_id
+              return [id, { id, phone_number: u.phone_number, end_user_id: u.end_user_id }]
+            })
+          ).values()
+        )
+                
         setUsers(uniqueUsers)
       } else {
         console.log("Supabase error:", error)
@@ -79,15 +88,23 @@ export default function Home() {
   }, [clientId])
 
   // Fetch messages when a user is clicked
-  const fetchMessages = async (userId) => {
-    setSelectedUser(userId)
+  const fetchMessages = async (user) => {
+  // Save the user's id (phone_number or end_user_id) in state
+  setSelectedUser(user.id)
 
-    const { data, error } = await supabase
+    let query = supabase
       .from('chat_logs')
-      .select('message, sender, created_at')
+      .select('message, sender, created_at, phone_number, end_user_id')
       .eq('client_id', clientId)
-      .eq('end_user_id', userId)
       .order('created_at', { ascending: true })
+
+    if (user.phone_number) {
+      query = query.eq('phone_number', user.phone_number)
+    } else {
+      query = query.eq('end_user_id', user.end_user_id)
+    }
+
+    const { data, error } = await query
 
     if (!error) {
       setMessages(data)
@@ -96,35 +113,9 @@ export default function Home() {
     }
   }
 
-  const handleLogout = async () => {
-    const { error } = await supabase.auth.signOut()
-    if (error) {
-      console.error('Error logging out:', error.message)
-    } else{
-      window.location.href = '/login'
-    }
-  }
-
+  
   return (
     <div style={{ display: 'flex', height: '100vh' }}>
-      {/* ✅ Logout button */}
-      <button
-        onClick={handleLogout}
-        style={{
-          position: 'absolute',
-          top: '10px',
-          right: '10px',
-          background: '#e53e3e',
-          color: 'white',
-          padding: '8px 16px',
-          border: 'none',
-          borderRadius: '5px',
-          cursor: 'pointer',
-          zIndex: 10,
-        }}
-      >
-        Logout
-      </button>
 
       {/* Sidebar */}
       <aside style={{ width: '450px', background: '#215f9aff', padding: '10px', color: 'white' }}>
@@ -145,11 +136,11 @@ export default function Home() {
                 padding: '8px',
                 borderBottom: '1px solid #ccc',
                 cursor: 'pointer',
-                background: selectedUser === user ? '#154a7d' : 'transparent'
+                background: selectedUser === user.id ? '#154a7d' : 'transparent'
               }}
-              onClick={() => fetchMessages(user)}
+              onClick={() => fetchMessages(user)} // // pass full object
             >
-              {user}
+              {user.phone_number || user.end_user_id}
             </li>
           ))}
         </ul>
@@ -160,7 +151,9 @@ export default function Home() {
       {/* Main Chat Window */}
       <main style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#0f172a', color: 'white' }}>
         <h1 style={{ padding: '20px', borderBottom: '1px solid #1e293b' }}>
-        {selectedUser ? `Conversation with ${selectedUser}` : 'Chat Window'}
+        {selectedUser
+          ? `Conversation with ${users.find(u => u.id === selectedUser)?.phone_number || selectedUser}`
+          : 'Chat Window'}
       </h1>
 
       <div
