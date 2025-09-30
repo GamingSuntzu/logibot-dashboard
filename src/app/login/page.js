@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Image from "next/image"; //import Next.js Image
 import styles from "./LoginPage.module.css";
 import { FaEye, FaEyeSlash } from "react-icons/fa"; // 👁️ import icons
+import Link from "next/link";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -96,6 +97,11 @@ export default function LoginPage() {
         <button type="submit" className={styles.loginButton}>
           Log in
         </button>
+        <p style={{ marginTop: "10px" }}>
+          <Link href="/reset-password" style={{ color: "#2179ee" }}>
+            Forgot password?
+          </Link>
+        </p>
       </form>
     </div>
     </div>

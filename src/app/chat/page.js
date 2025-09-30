@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useRef } from 'react'
 import { supabase } from '../../../lib/supabaseClient'
+import { FiSearch } from "react-icons/fi"; // feather search icon
+
 
 export default function Home() {
   const [users, setUsers] = useState([])
@@ -9,6 +11,8 @@ export default function Home() {
   const [messages, setMessages] = useState([])
   const [clientId, setClientId] = useState(null)  // ✅ dynamic client id
   const chatContainerRef = useRef(null)
+  const [searchTerm, setSearchTerm] = useState("");
+  
 
   // client-side auth check
   useEffect(() => {
@@ -118,18 +122,69 @@ export default function Home() {
     <div style={{ display: 'flex', height: '100vh' }}>
 
       {/* Sidebar */}
-      <aside style={{ width: '450px', background: '#215f9aff', padding: '10px', color: 'white' }}>
+      <aside 
+        style={{
+          width: '450px', 
+          background: '#215f9aff', 
+          padding: '10px', 
+          color: 'white',
+          display: 'flex',          // ✅ make sidebar a flex container
+          flexDirection: 'column',  // ✅ vertical stacking
+          height: '100vh',          // ✅ fix height so scroll works
+        }}
+      >
         <h2 style={{ padding: '15px', borderBottom: '1px solid #1e293b' }}>
         Users</h2>
+
+        {/* 🔍 Search bar */}
+        <div
+          style={{
+          display: "flex",
+          alignItems: "center",
+          background: "#1e293b", // dark bluish background
+          borderRadius: "8px",
+          padding: "6px 10px",
+          margin: "10px",
+          border: "1px solid #2c5282", // subtle blue border
+        }}
+        >
+          <span style={{ color: "#9ca3af", marginRight: "8px" }}>
+            <FiSearch style={{ color: "#9ca3af", marginRight: "8px" }} />
+          </span>
+        <input
+          type="text"
+          placeholder="Search users..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          style={{
+            flex: 1,
+            background: "transparent",
+            border: "none",
+            outline: "none",
+            color: "white",
+            fontSize: "14px",
+          }}
+        />
+        </div>
+
+        {/* Scrollable user list */}
         <div
           style={{
             flex: 1,
             overflowY: 'auto', //makes sidebar scrollable
             padding: '10px'
           }}
+          className="custom-scrollbar"  // 🎨 custom scrollbar styling
         >
-        <ul>
-          {users.map((user, i) => (
+        <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+          {users
+            .filter(
+              (user) =>
+                (user.phone_number || user.end_user_id)
+                  .toLowerCase()
+                  .includes(searchTerm.toLowerCase())
+            )
+          .map((user, i) => (
             <li
               key={i}
               style={{

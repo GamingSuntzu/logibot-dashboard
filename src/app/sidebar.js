@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { FiLogOut, FiMessageSquare, FiTrendingUp } from "react-icons/fi"; // icons
 import { MdShowChart } from "react-icons/md"; // analytics icon
-import { BiChat, BiLineChart } from "react-icons/bi";
+import { BiChat, BiLineChart, BiTachometer } from "react-icons/bi";
 import { supabase } from "../../lib/supabaseClient"; // adjust path if needed
 
 export default function Sidebar() {
@@ -12,6 +12,8 @@ export default function Sidebar() {
   const router = useRouter();
 
   if (pathname === "/login") return null;
+  if (pathname === "/reset-password") return null;
+  if (pathname === "/update-password") return null;
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -67,6 +69,24 @@ export default function Sidebar() {
           }}
         >
           <BiLineChart size={22} />
+        </Link>
+
+        <Link
+          href="/quota"
+          style={{
+            margin: "20px 0",
+            fontSize: "24px",
+            background: pathname === "/quota" ? "#3b82f6" : "transparent",
+            borderRadius: "8px",
+            padding: "6px",
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            width: "40px",
+            height: "40px",
+          }}
+        >
+          <BiTachometer size={22} />
         </Link>
       </div>
 

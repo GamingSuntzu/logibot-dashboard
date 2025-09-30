@@ -42,3 +42,28 @@ body {
 .loginButton:hover {
   background: #154a7d; /* darker blue */
 }
+
+/* Custom scrollbar for user list */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 8px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: #1e3a5f; /* dark track */
+  border-radius: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #2b2f3a;   /* dark gray */
+  border-radius: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #375a9e;   /* bluish hover */
+}
+
+/* Firefox */
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #5f83ac #1e3a5f;
+}
