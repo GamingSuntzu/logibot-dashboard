@@ -2,8 +2,8 @@
 
 import { useEffect, useState, useRef } from 'react'
 import { supabase } from '../../../lib/supabaseClient'
-import { FiSearch } from "react-icons/fi"; // feather search icon
-
+import { FiSearch, FiFlag } from "react-icons/fi"; // feather search icon
+import { FaExclamationCircle } from "react-icons/fa";
 
 export default function Home() {
   const [users, setUsers] = useState([])
@@ -12,6 +12,7 @@ export default function Home() {
   const [clientId, setClientId] = useState(null)  // ✅ dynamic client id
   const chatContainerRef = useRef(null)
   const [searchTerm, setSearchTerm] = useState("");
+  const messageChannelRef = useRef(null)
   
 
   // client-side auth check
@@ -62,25 +63,40 @@ export default function Home() {
   }, [messages])
 
 
-  // Fetch unique users
+  // Fetch unique users and realtime update hook
   useEffect(() => {
+    if (!clientId) return;
+
+    // 1. Fetch users initially
     const fetchUsers = async () => {
       const { data, error } = await supabase
         .from('chat_logs')
-        .select('end_user_id, phone_number')
+        .select('end_user_id, phone_number, client_id, user_map (is_flagged, is_priority)')
         .eq('client_id', clientId)
         .order('created_at', { ascending: false })
-
+        
       if (!error) {
         const uniqueUsers = Array.from(
           new Map(
             data.map(u => {
               // use phone_number if available, otherwise fall back to end_user_id
               const id = u.phone_number || u.end_user_id
-              return [id, { id, phone_number: u.phone_number, end_user_id: u.end_user_id }]
+              return [id, { id, phone_number: u.phone_number, end_user_id: u.end_user_id, client_id: u.client_id, is_flagged: u.user_map?.is_flagged || false, is_priority: u.user_map?.is_priority || false}]
             })
           ).values()
-        )
+        );
+
+        // ✅ sort: priority > flagged > normal
+        const sortedUsers = [...users].sort((a, b) => {
+          if (a.is_priority && !b.is_priority) return -1;
+          if (!a.is_priority && b.is_priority) return 1;
+
+          if (a.is_flagged && !b.is_flagged) return -1;
+          if (!a.is_flagged && b.is_flagged) return 1;
+
+          // fallback: newest message first
+          return new Date(b.created_at) - new Date(a.created_at);
+        });
                 
         setUsers(uniqueUsers)
       } else {
@@ -89,13 +105,44 @@ export default function Home() {
     }
 
     fetchUsers()
-  }, [clientId])
 
-  // Fetch messages when a user is clicked
+    // 2. Subscribe to raltime inserts
+    const channel = supabase
+      .channel(`chat_logs_${clientId}_${Date.now()}`) // unique channel name
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'chat_logs', filter: `client_id=eq.${clientId}` },
+        (payload) => {
+          const newRow = payload.new
+          const id = newRow.phone_number || newRow.end_user_id
+
+          // 👉 Add new user to sidebar if missing
+          setUsers(prev => {
+            if (prev.some(u => u.id === id)) return prev
+            return [{ id, phone_number: newRow.phone_number, end_user_id: newRow.end_user_id, client_id: newRow.client_id, is_flagged: false, is_priority: false }, ...prev]
+          })
+        }
+      )
+      .subscribe()
+
+    // 🔹 3. Cleanup on unmount or clientId change
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [clientId, selectedUser])
+
+  // Fetch messages when a user is clicked n refresh the subscription for the specific user
   const fetchMessages = async (user) => {
   // Save the user's id (phone_number or end_user_id) in state
   setSelectedUser(user.id)
 
+  // Clean up previous subscription (if there is)
+  if (messageChannelRef.current){
+    supabase.removeChannel(messageChannelRef.current)
+    messageChannelRef.current = null
+  }
+
+    // 1. Fetch existing messages
     let query = supabase
       .from('chat_logs')
       .select('message, sender, created_at, phone_number, end_user_id')
@@ -115,8 +162,48 @@ export default function Home() {
     } else {
       console.error(error)
     }
+
+    // 2. Subscribe to realtime inserts for this specific user
+    const filter = user.phone_number
+      ? `client_id=eq.${clientId} AND phone_number=eq.${user.phone_number}`
+      : `client_id=eq.${clientId} AND end_user_id=eq.${user.end_user_id}`
+
+    const channel = supabase
+      .channel(`chat_logs_${user.id}_${Date.now()}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'chat_logs', filter },
+        (payload) => {
+          setMessages(prev => [...prev, payload.new])
+        }
+      )
+      .subscribe()
+
+    // Save the active channel to be able to clean it later
+    messageChannelRef.current = channel
   }
 
+  // Toggle user flag/priority
+  const toggleFlag = async (user, type) => {
+    let column = type === "flag" ? "is_flagged" : "is_priority";
+    let newValue = !user[column];
+
+    const { error } = await supabase
+      .from("user_map")
+      .update({ [column]: newValue })
+      .eq("end_user_id", user.end_user_id)
+      .eq("client_id", clientId); // ensure only the corresponding client's row is updated
+
+    if (!error) {
+      setUsers(prev =>
+        prev.map(u =>
+          u.end_user_id === user.end_user_id ? { ...u, [column]: newValue } : u
+        )
+      );
+    } else {
+      console.error("Error updating flag:", error);
+    }
+  };
   
   return (
     <div style={{ display: 'flex', height: '100vh' }}>
@@ -177,7 +264,17 @@ export default function Home() {
           className="custom-scrollbar"  // 🎨 custom scrollbar styling
         >
         <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-          {users
+          {[...users]   // clone array before sorting
+            .sort((a, b) => {
+              if (a.is_priority && !b.is_priority) return -1;
+              if (!a.is_priority && b.is_priority) return 1;
+
+              if (a.is_flagged && !b.is_flagged) return -1;
+              if (!a.is_flagged && b.is_flagged) return 1;
+
+              return new Date(b.created_at) - new Date(a.created_at);
+            })
+
             .filter(
               (user) =>
                 (user.phone_number || user.end_user_id)
@@ -191,11 +288,31 @@ export default function Home() {
                 padding: '8px',
                 borderBottom: '1px solid #ccc',
                 cursor: 'pointer',
-                background: selectedUser === user.id ? '#154a7d' : 'transparent'
+                background: selectedUser === user.id ? '#154a7d' : 'transparent',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between'
               }}
               onClick={() => fetchMessages(user)} // // pass full object
             >
-              {user.phone_number || user.end_user_id}
+              {/* Left side: user identifier */}
+              <span>{user.phone_number || user.end_user_id}</span>
+
+              {/* Right side: Flag toggles */}
+              <span style={{ display: 'flex', gap: '8px' }} onClick={(e) => e.stopPropagation()}>
+                <FiFlag
+                  color={user.is_flagged ? "yellow" : "#4b5563"}
+                  onClick={() => toggleFlag(user, "flag")}
+                  style={{ cursor: "pointer" }}
+                  title={user.is_flagged ? "Unflag User" : "Flag User"}
+                />
+                <FaExclamationCircle
+                  color={user.is_priority ? "red" : "#4b5563"}
+                  onClick={() => toggleFlag(user, "priority")}
+                  style={{ cursor: "pointer" }}
+                  title={user.is_priority ? "Remove Priority" : "Mark as Priority"}
+                />
+              </span>
             </li>
           ))}
         </ul>

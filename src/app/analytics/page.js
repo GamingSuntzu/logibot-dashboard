@@ -24,6 +24,8 @@ export default function AnalyticsPage() {
   const today = new Date();
   const [selectedMonth, setSelectedMonth] = useState(today.getMonth()); // 0–11
   const [selectedYear, setSelectedYear] = useState(today.getFullYear());
+  const [trackingUsage, setTrackingUsage] = useState(0);
+
 
 
 
@@ -86,12 +88,24 @@ export default function AnalyticsPage() {
       const { data: grouped } = await supabase
         .from("chat_logs")
         .select("sender")
-        .eq("client_id", clientId);
+        .eq("client_id", clientId)
+        .gte("created_at", startOfMonth.toISOString());
       const counts = grouped?.reduce((acc, row) => {
         acc[row.sender] = (acc[row.sender] || 0) + 1;
         return acc;
       }, {}) || {};
       setMessagesBySender(counts);
+
+      // Tracking usage this month
+      const { count: tracking } = await supabase
+        .from("feature_usage")
+        .select("*", { count: "exact", head: true })
+        .eq("client_id", clientId)
+        .eq("feature", "tracking")
+        .gte("created_at", startOfMonth.toISOString());
+
+      setTrackingUsage(tracking || 0);
+
 
       setLoading(false);
     }
@@ -203,6 +217,44 @@ export default function AnalyticsPage() {
         if (formatted.length === 0) formatted = [{ day: "No Data", unique: 0 }];
         setChartData(formatted);
       }
+
+
+      else if (kpi === "tracking") {
+        const { data, error } = await supabase
+          .from("feature_usage")
+          .select("created_at")
+          .eq("client_id", clientId)
+          .eq("feature", "tracking")
+          .gte("created_at", startOfMonth.toISOString())
+          .lte("created_at", endOfMonth.toISOString())
+          .order("created_at", { ascending: true });
+
+        if (error) {
+          console.error("Error fetching tracking data:", error);
+          setChartData([]);
+          return;
+        }
+
+        const daily = {};
+        data.forEach((row) => {
+          const day = new Date(row.created_at).toLocaleDateString("id-ID", {
+            day: "2-digit",
+            month: "short",
+          });
+          if (!daily[day]) daily[day] = { day, tracking: 0 };
+          daily[day].tracking += 1;
+        });
+
+        let cumTracking = 0;
+        let formatted = Object.values(daily).map((d) => {
+          cumTracking += d.tracking;
+          return { day: d.day, tracking: cumTracking };
+        });
+
+        if (formatted.length === 0) formatted = [{ day: "No Data", tracking: 0 }];
+        setChartData(formatted);
+      }
+
     }
 
 
@@ -240,7 +292,7 @@ export default function AnalyticsPage() {
           className="bg-gray-800 p-4 rounded-xl shadow cursor-pointer hover:bg-gray-700"
           onClick={() => setSelectedKpi("messagesBySender")}
         >
-          <p className="text-sm text-gray-400 mb-4">Messages by Sender</p>
+          <p className="text-sm text-gray-400 mb-4">Messages by Sender This Month</p>
           <div className="grid grid-cols-2 gap-4">
             <div className="bg-gray-700 p-4 rounded-lg text-center">
               <p className="text-sm text-gray-300">User</p>
@@ -257,6 +309,13 @@ export default function AnalyticsPage() {
             </div>
           </div>
         </div>
+
+        <div
+          className="bg-gray-800 p-4 rounded-xl shadow cursor-pointer hover:bg-gray-700"
+          onClick={() => setSelectedKpi("tracking")}
+        >
+          <p className="text-sm text-gray-400">Tracking Usage This Month</p>            <p className="text-3xl font-bold text-purple-400">{trackingUsage}</p>
+        </div>  
       </div>
 
       {/* Chart Section */}
@@ -267,6 +326,8 @@ export default function AnalyticsPage() {
             {selectedKpi === "messagesBySender" && "📈 Messages Over Time"}
             {selectedKpi === "total" && "📈 Total Messages Over Time"}
             {selectedKpi === "unique" && "📈 Unique Users Over Time"}
+            {selectedKpi === "tracking" && "📈 Tracking Usage Over Time"}
+
           </h2>
 
           {/* Month/Year Picker */}
@@ -321,6 +382,11 @@ export default function AnalyticsPage() {
               {selectedKpi === "unique" && (
                 <Line type="monotone" dataKey="unique" stroke="#ec4899" strokeWidth={2} />
               )}
+
+              {selectedKpi === "tracking" && (
+                <Line type="monotone" dataKey="tracking" stroke="#a855f7" strokeWidth={2} />
+              )}
+
 
             </LineChart>
           </ResponsiveContainer>
