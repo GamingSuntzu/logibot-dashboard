@@ -3,7 +3,8 @@
 import { useEffect, useState, useRef } from 'react'
 import { supabase } from '../../../lib/supabaseClient'
 import { FiSearch, FiFlag } from "react-icons/fi"; // feather search icon
-import { FaExclamationCircle } from "react-icons/fa";
+import { FaExclamationCircle, FaWhatsapp, FaInstagram, FaFacebookMessenger } from "react-icons/fa";
+import { IoGlobeOutline } from "react-icons/io5"; // fallback for web/unknown
 
 export default function Home() {
   const [users, setUsers] = useState([])
@@ -55,6 +56,41 @@ export default function Home() {
     });
   }
 
+  function ChannelIcon({ channel }) {
+    switch (channel) {
+      case "whatsapp":
+        return (
+          <span title="WhatsApp">
+            <FaWhatsapp color="#25D366" style={{ marginLeft: "6px" }} />
+          </span>
+        );
+      case "messenger":
+        return (
+          <span title="Messenger">
+            <FaFacebookMessenger color="#0084FF" style={{ marginLeft: "6px" }} />
+          </span>
+        );
+      case "instagram":
+        return (
+          <span title="Instagram">
+            <FaInstagram color="#E1306C" style={{ marginLeft: "6px" }} />
+          </span>
+        );
+      case "web":
+        return (
+          <span title="Web Chat">
+            <IoGlobeOutline color="#aaa" style={{ marginLeft: "6px" }} />
+          </span>
+        );
+      default:
+        return (
+          <span title="Unknown">
+            <IoGlobeOutline color="#aaa" style={{ marginLeft: "6px" }} />
+          </span>
+        );
+    }
+  }
+
   // Auto-scroll when messages change
   useEffect(() => {
     if (chatContainerRef.current) {
@@ -71,7 +107,7 @@ export default function Home() {
     const fetchUsers = async () => {
       const { data, error } = await supabase
         .from('chat_logs')
-        .select('end_user_id, phone_number, client_id, user_map (is_flagged, is_priority)')
+        .select('end_user_id, phone_number, client_id, user_map (is_flagged, is_priority, channel)')
         .eq('client_id', clientId)
         .order('created_at', { ascending: false })
         
@@ -81,7 +117,7 @@ export default function Home() {
             data.map(u => {
               // use phone_number if available, otherwise fall back to end_user_id
               const id = u.phone_number || u.end_user_id
-              return [id, { id, phone_number: u.phone_number, end_user_id: u.end_user_id, client_id: u.client_id, is_flagged: u.user_map?.is_flagged || false, is_priority: u.user_map?.is_priority || false}]
+              return [id, { id, phone_number: u.phone_number, end_user_id: u.end_user_id, client_id: u.client_id, channel: u.user_map?.channel || "unknown", is_flagged: u.user_map?.is_flagged || false, is_priority: u.user_map?.is_priority || false}]
             })
           ).values()
         );
@@ -106,7 +142,7 @@ export default function Home() {
 
     fetchUsers()
 
-    // 2. Subscribe to raltime inserts
+    // 2. Subscribe to realtime inserts
     const channel = supabase
       .channel(`chat_logs_${clientId}_${Date.now()}`) // unique channel name
       .on(
@@ -296,7 +332,10 @@ export default function Home() {
               onClick={() => fetchMessages(user)} // // pass full object
             >
               {/* Left side: user identifier */}
-              <span>{user.phone_number || user.end_user_id}</span>
+              <span style={{ display: "flex", alignItems: "center" }}>
+                {user.phone_number || user.end_user_id}
+                <ChannelIcon channel={user.channel} />
+              </span>
 
               {/* Right side: Flag toggles */}
               <span style={{ display: 'flex', gap: '8px' }} onClick={(e) => e.stopPropagation()}>
