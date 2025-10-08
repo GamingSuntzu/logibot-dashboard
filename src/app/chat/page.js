@@ -457,13 +457,15 @@ export default function Home() {
               className="p-3 border-b border-gray-600 flex justify-between items-center"
               onClick={() => fetchMessages(user)}
             >
-              <span className="flex items-center">
+              <span className="flex items-center min-w-0">
+                <span className="truncate overflow-hidden whitespace-nowrap max-w-[240px]">
                 {user.phone_number || user.end_user_id}
+                </span>
                 <ChannelIcon channel={user.channel} />
               </span>
 
               {/* Flag & priority icons */}
-              <span className="flex gap-3" onClick={(e) => e.stopPropagation()}>
+              <span className="flex gap-3 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
                 <FiFlag
                   size={16}
                   color={user.is_flagged ? "yellow" : "#9ca3af"}
