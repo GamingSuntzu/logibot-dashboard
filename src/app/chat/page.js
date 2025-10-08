@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react'
 import { supabase } from '../../../lib/supabaseClient'
-import { FiSearch, FiFlag } from "react-icons/fi"; // feather search icon
+import { FiSearch, FiFlag, FiArrowLeft } from "react-icons/fi"; // feather search icon
 import { FaExclamationCircle, FaWhatsapp, FaInstagram, FaFacebookMessenger } from "react-icons/fa";
 import { IoGlobeOutline } from "react-icons/io5"; // fallback for web/unknown
 
@@ -12,8 +12,17 @@ export default function Home() {
   const [messages, setMessages] = useState([])
   const [clientId, setClientId] = useState(null)  // ✅ dynamic client id
   const chatContainerRef = useRef(null)
-  const [searchTerm, setSearchTerm] = useState("");
+  const [searchTerm, setSearchTerm] = useState("")
   const messageChannelRef = useRef(null)
+  
+  // ✅ detect mobile
+  const [isMobile, setIsMobile] = useState(false)
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 768)
+    checkMobile()
+    window.addEventListener('resize', checkMobile)
+    return () => window.removeEventListener('resize', checkMobile)
+  }, [])
   
 
   // client-side auth check
@@ -242,9 +251,11 @@ export default function Home() {
   };
   
   return (
-    <div style={{ display: 'flex', height: '100vh' }}>
-
-      {/* Sidebar */}
+    <div className="flex h-full w-full overflow-hidden flex-col md:flex-row">
+      {/* Desktop layout */}
+      {!isMobile && (
+        <>
+        {/* Sidebar */}
       <aside 
         style={{
           width: '450px', 
@@ -360,7 +371,7 @@ export default function Home() {
 
       
       {/* Main Chat Window */}
-      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#0f172a', color: 'white' }}>
+      <main className="flex-1 bg-[#0f172a] text-white flex flex-col min-h-0">
         <h1 style={{ padding: '20px', borderBottom: '1px solid #1e293b' }}>
         {selectedUser
           ? `Conversation with ${users.find(u => u.id === selectedUser)?.phone_number || selectedUser}`
@@ -410,8 +421,114 @@ export default function Home() {
     )}
         </div>
       </main>
+    </>
+  )}
+
+  {/* Mobile layout */}
+      {isMobile && (
+        <>
+          {/* Show user list if no user selected */}
+          {/* Mobile User List */}
+{!selectedUser && (
+  <div className="flex-1 bg-[#215f9a] text-white flex flex-col min-h-0">
+    {/* Header */}
+    <h2 className="p-4 border-b border-slate-800">Users</h2>
+
+    {/* Search Bar */}
+    <div className="flex items-center bg-slate-800 rounded-md px-3 py-2 m-3">
+      <FiSearch className="text-gray-400 mr-2" />
+      <input
+        type="text"
+        placeholder="Search users..."
+        value={searchTerm}
+        onChange={(e) => setSearchTerm(e.target.value)}
+        className="bg-transparent outline-none text-sm flex-1 text-white"
+      />
+    </div>
+
+    {/* ✅ Scrollable user list only */}
+    <div className="flex-1 overflow-y-auto">
+      <ul>
+        {users
+          .filter(u => (u.phone_number || u.end_user_id).toLowerCase().includes(searchTerm.toLowerCase()))
+          .map((user, i) => (
+            <li
+              key={i}
+              className="p-3 border-b border-gray-600 flex justify-between items-center"
+              onClick={() => fetchMessages(user)}
+            >
+              <span className="flex items-center">
+                {user.phone_number || user.end_user_id}
+                <ChannelIcon channel={user.channel} />
+              </span>
+
+              {/* Flag & priority icons */}
+              <span className="flex gap-3" onClick={(e) => e.stopPropagation()}>
+                <FiFlag
+                  size={16}
+                  color={user.is_flagged ? "yellow" : "#9ca3af"}
+                  onClick={() => toggleFlag(user, "flag")}
+                />
+                <FaExclamationCircle
+                  size={16}
+                  color={user.is_priority ? "red" : "#9ca3af"}
+                  onClick={() => toggleFlag(user, "priority")}
+                />
+              </span>
+            </li>
+          ))}
+      </ul>
+      {/* Spacer for bottom nav bar, prevents ghost scroll */}
+    <div className="h-20 shrink-0" />
+    </div>
+  </div>
+)}
 
 
+          {/* Show chat if user selected */}
+{selectedUser && (
+  <div className="flex-1 flex flex-col bg-slate-900 text-white min-h-0">
+    {/* ✅ Fixed header */}
+    <div className="flex items-center p-4 border-b border-slate-800">
+      <button onClick={() => setSelectedUser(null)} className="mr-3">
+        <FiArrowLeft size={20} />
+      </button>
+      <h1 className="text-lg font-semibold truncate">
+        {users.find(u => u.id === selectedUser)?.phone_number || selectedUser}
+      </h1>
+    </div>
+
+    {/* ✅ Scrollable messages */}
+    <div
+      ref={chatContainerRef}
+      className="flex-1 overflow-y-auto p-4 flex flex-col gap-2"
+    >
+      {messages.map((msg, i) => (
+        <div
+          key={i}
+          className={`flex ${msg.sender === "user" ? "justify-end" : "justify-start"}`}
+        >
+          <div
+            className={`px-3 py-2 rounded-2xl max-w-[75%] ${
+              msg.sender === "user"
+                ? "bg-blue-600 text-white"
+                : "bg-gray-200 text-black"
+            }`}
+          >
+            <p>{msg.message}</p>
+            <small className="text-xs opacity-70">
+              {formatTimestamp(msg.created_at)}
+            </small>
+          </div>
+        </div>
+      ))}
+      <div className="h-20 shrink-0" /> {/* Spacer */}
+    </div>
+  </div>
+)}
+        </>
+      )}
     </div>
   )
 }
+
