@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "../../../lib/supabaseClient";
+import { FiChevronRight, FiBarChart, FiBarChart2 } from "react-icons/fi";
 import {
   LineChart,
   Line,
@@ -270,8 +271,9 @@ export default function AnalyticsPage() {
     <div className="p-6 text-white">
       <h1 className="text-2xl font-bold mb-6">📊 Analytics</h1>
 
-      {/* KPI Grid */}
-      <div className="grid grid-cols-3 gap-6">
+      {/* KPI Grid, Desktop Layout*/}
+      <div className="hidden md:grid md:grid-cols-3 gap-6">
+        {/* Total Messages */}
         <div
           className="bg-gray-800 p-4 rounded-xl shadow cursor-pointer hover:bg-gray-700"
           onClick={() => setSelectedKpi("total")}
@@ -279,7 +281,7 @@ export default function AnalyticsPage() {
           <p className="text-sm text-gray-400">Total Messages This Month</p>
           <p className="text-3xl font-bold">{totalMessages}</p>
         </div>
-
+        {/* Unique Users */}
         <div
           className="bg-gray-800 p-4 rounded-xl shadow cursor-pointer hover:bg-gray-700"
           onClick={() => setSelectedKpi("unique")}
@@ -287,7 +289,7 @@ export default function AnalyticsPage() {
           <p className="text-sm text-gray-400">Unique Users This Month</p>
           <p className="text-3xl font-bold">{uniqueUsers}</p>
         </div>
-
+        {/* Messages by Sender */}
         <div
           className="bg-gray-800 p-4 rounded-xl shadow cursor-pointer hover:bg-gray-700"
           onClick={() => setSelectedKpi("messagesBySender")}
@@ -309,7 +311,7 @@ export default function AnalyticsPage() {
             </div>
           </div>
         </div>
-
+        {/* Tracking Usage */}
         <div
           className="bg-gray-800 p-4 rounded-xl shadow cursor-pointer hover:bg-gray-700"
           onClick={() => setSelectedKpi("tracking")}
@@ -318,9 +320,9 @@ export default function AnalyticsPage() {
         </div>  
       </div>
 
-      {/* Chart Section */}
+      {/* Desktop Chart Section */}
       {selectedKpi  && (
-        <div className="bg-gray-900 p-6 rounded-xl shadow mt-8">
+        <div className="hidden md:block bg-gray-900 p-6 rounded-xl shadow mt-8">
           {/* Dynamic title */}
           <h2 className="text-lg font-semibold mb-4">
             {selectedKpi === "messagesBySender" && "📈 Messages Over Time"}
@@ -395,6 +397,188 @@ export default function AnalyticsPage() {
           )}
         </div>
       )}
+
+      {/* --- MOBILE LAYOUT (clean KPIs + top chart) --- */}
+      <div className="block md:hidden space-y-4">
+        {/* Chart at top — only visible when KPI selected */}
+        {selectedKpi && (
+          <div className="bg-gray-900 p-4 rounded-xl shadow">
+            <h2 className="text-base font-semibold mb-3">
+              {selectedKpi === "messagesBySender" && "📈 Messages Over Time"}
+              {selectedKpi === "total" && "📈 Total Messages Over Time"}
+              {selectedKpi === "unique" && "📈 Unique Users Over Time"}
+              {selectedKpi === "tracking" && "📈 Tracking Usage Over Time"}
+            </h2>
+
+            {/* Month/Year Picker */}
+            <div className="flex gap-2 mb-3">
+              <select
+                value={selectedMonth}
+                onChange={(e) => setSelectedMonth(Number(e.target.value))}
+                className="bg-gray-800 text-white p-2 rounded text-sm"
+              >
+                {[
+                  "January","February","March","April","May","June",
+                  "July","August","September","October","November","December"
+                ].map((m, i) => (
+                  <option key={i} value={i}>{m}</option>
+                ))}
+              </select>
+
+              <select
+                value={selectedYear}
+                onChange={(e) => setSelectedYear(Number(e.target.value))}
+                className="bg-gray-800 text-white p-2 rounded text-sm"
+              >
+                {Array.from({ length: 5 }, (_, i) => today.getFullYear() - i).map((y) => (
+                  <option key={y} value={y}>{y}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Chart with transition */}
+            <div
+              className={`transition-all duration-500 overflow-hidden ${
+                selectedKpi ? "opacity-100 max-h-[500px]" : "opacity-0 max-h-0"
+              }`}
+            >
+            {chartData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={250}>
+                <LineChart data={chartData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+                  <XAxis dataKey="day" stroke="#aaa" />
+                  <YAxis stroke="#aaa" />
+                  <Tooltip />
+                  <Legend />
+                  {selectedKpi === "messagesBySender" && (
+                    <>
+                      <Line type="monotone" dataKey="user" stroke="#3b82f6" strokeWidth={2} />
+                      <Line type="monotone" dataKey="bot" stroke="#22c55e" strokeWidth={2} />
+                    </>
+                  )}
+                  {selectedKpi === "total" && (
+                    <Line type="monotone" dataKey="total" stroke="#facc15" strokeWidth={2} />
+                  )}
+                  {selectedKpi === "unique" && (
+                    <Line type="monotone" dataKey="unique" stroke="#ec4899" strokeWidth={2} />
+                  )}
+                  {selectedKpi === "tracking" && (
+                    <Line type="monotone" dataKey="tracking" stroke="#a855f7" strokeWidth={2} />
+                  )}
+                </LineChart>
+              </ResponsiveContainer>
+            ) : (
+              <p className="text-gray-400 text-sm">No data available for this month.</p>
+            )}
+          </div>
+          </div>
+        )}
+
+        {/* KPI Cards */}
+        <div
+          onClick={() => setSelectedKpi(selectedKpi === "total" ? null : "total")}
+          className={`p-4 rounded-xl shadow cursor-pointer transition-all duration-300 
+            ${
+              selectedKpi === "total"
+              ? "bg-gray-700 ring-2 ring-yellow-400 shadow-yellow-400/20 scale-[1.02]"
+              : "bg-gray-800 hover:bg-gray-700 hover:scale-[1.01]"
+            }`}
+        >
+          <div className="flex justify-between items-center">
+            <div>
+              <p className="text-sm text-gray-400">Total Messages</p>
+              <p className="text-3xl font-bold">{totalMessages}</p>
+            </div>
+            {selectedKpi === "total" ? (
+              <FiBarChart2 className="text-yellow-400 text-xl" />
+            ) : (
+              <FiChevronRight className="text-gray-400 text-xl" />
+            )}
+          </div>
+        </div>
+
+        <div
+          onClick={() => setSelectedKpi(selectedKpi === "unique" ? null : "unique")}
+          className={`p-4 rounded-xl shadow cursor-pointer transition-all duration-300 
+            ${
+              selectedKpi === "unique"
+              ? "bg-gray-700 ring-2 ring-pink-400 shadow-pink-400/20 scale-[1.02]"
+              : "bg-gray-800 hover:bg-gray-700 hover:scale-[1.01]"
+            }`}
+        >
+          <div className="flex justify-between items-center">
+            <div>
+              <p className="text-sm text-gray-400">Unique Users</p>
+              <p className="text-3xl font-bold">{uniqueUsers}</p>
+            </div>
+            {selectedKpi === "unique" ? (
+              <FiBarChart2 className="text-pink-400 text-xl" />
+            ) : (
+              <FiChevronRight className="text-gray-400 text-xl" />
+            )}
+          </div>
+        </div>
+
+        <div
+          onClick={() =>
+            setSelectedKpi(selectedKpi === "messagesBySender" ? null : "messagesBySender")
+          }
+          className={`p-4 rounded-xl shadow cursor-pointer transition-all duration-300 
+            ${
+              selectedKpi === "messagesBySender"
+              ? "bg-gray-700 ring-2 ring-blue-400 shadow-blue-400/20 scale-[1.02]"
+              : "bg-gray-800 hover:bg-gray-700 hover:scale-[1.01]"
+            }`}
+        >
+          <div className="flex justify-between items-center">
+            <div>
+              <p className="text-sm text-gray-400">Messages by Sender</p>
+              <div className="flex gap-4 mt-2">
+                <div className="text-center">
+                  <p className="text-sm text-gray-300">User</p>
+                  <p className="text-2xl font-bold text-blue-400">
+                    {messagesBySender.user || 0}
+                  </p>
+                </div>
+                <div className="text-center">
+                  <p className="text-sm text-gray-300">Bot</p>
+                  <p className="text-2xl font-bold text-green-400">
+                    {messagesBySender.bot || 0}
+                  </p>
+                </div>
+              </div>
+            </div>
+            {selectedKpi === "messagesBySender" ? (
+              <FiBarChart2 className="text-blue-400 text-xl" />
+            ) : (
+              <FiChevronRight className="text-gray-400 text-xl" />
+            )}
+          </div>
+        </div>
+
+        <div
+          onClick={() => setSelectedKpi(selectedKpi === "tracking" ? null : "tracking")}
+          className={`p-4 rounded-xl shadow cursor-pointer transition-all duration-300 
+            ${
+              selectedKpi === "tracking"
+              ? "bg-gray-700 ring-2 ring-purple-400 shadow-purple-400/20 scale-[1.02]"
+              : "bg-gray-800 hover:bg-gray-700 hover:scale-[1.01]"
+            }`}
+        >
+          <div className="flex justify-between items-center">
+            <div>
+              <p className="text-sm text-gray-400">Tracking Usage</p>
+              <p className="text-3xl font-bold text-purple-400">{trackingUsage}</p>
+            </div>
+            {selectedKpi === "tracking" ? (
+              <FiBarChart2 className="text-purple-400 text-xl" />
+            ) : (
+              <FiChevronRight className="text-gray-400 text-xl" />
+            )}
+          </div>
+        </div>
+      </div>
+
     </div>
   );
 }
