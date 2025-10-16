@@ -264,7 +264,11 @@ export default function AnalyticsPage() {
 
   // Set the bubbles for display
   if (loading) {
-    return <div className="p-6 text-white">Loading analytics...</div>;
+    return (
+      <div className="flex items-center justify-center h-screen bg-gray-950 text-white">
+        <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-blue-400"></div>
+      </div>
+    )
   }
 
   return (
