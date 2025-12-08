@@ -18,20 +18,22 @@ export function useAuthClient() {
 
       setSession(session)
 
-      // Find client_id linked to auth_id
-      const { data: client, error } = await supabase
-        .from("clients")
-        .select("id")
-        .eq("auth_id", session.user.id)
-        .single()
 
-      if (error || !client) {
-        console.error("Error finding client:", error)
-        window.location.href = "/login"
-        return
+      // Find client_id via new client_users table
+      const { data: mapping, error: mappingError } = await supabase
+        .from("client_users")
+        .select("client_id, role")
+        .eq("auth_id", session.user.id)
+        .single();
+
+      if (mappingError || !mapping) {
+        console.error("User not linked to any client:", mappingError);
+        window.location.href = "/login";
+        return;
       }
 
-      setClientId(client.id)
+      setClientId(mapping.client_id);
+
       setLoading(false)
     }
 

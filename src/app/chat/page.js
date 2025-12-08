@@ -34,18 +34,22 @@ export default function Home() {
         return
       }
 
-      // Lookp clientId using auth_id
-      const { data: client, error } = await supabase
-        .from('clients')
-        .select('id')
-        .eq('auth_id', session.user.id)
-        .single()
-      
-      if (error) {
-        console.error("Error finding client:", error)
-      } else {
-        setClientId(client.id)  // save client id in state
-      }
+      // Look up client via client_users
+const { data: mapping, error: mappingError } = await supabase
+  .from("client_users")
+  .select("client_id, role")
+  .eq("auth_id", session.user.id)
+  .single();
+
+if (mappingError || !mapping) {
+  console.error("User not linked to any client:", mappingError);
+  window.location.href = "/login";
+  return;
+}
+
+// Save client id in state
+setClientId(mapping.client_id);
+
     }
     checkAuth()
   }, [])

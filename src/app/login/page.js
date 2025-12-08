@@ -14,21 +14,44 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false); // 👁️ state toggle
   const [error, setError] = useState("");
 
-  async function handleLogin(e) {
-    e.preventDefault();
+async function handleLogin(e) {
+  e.preventDefault();
+  setError("");
 
-    const { data, error } = await supabase.auth.signInWithPassword({
+  // Step 1 — authenticate with Supabase
+  const { data: authResult, error: authError } =
+    await supabase.auth.signInWithPassword({
       email,
       password,
     });
 
-    if (error) {
-      setError(error.message);
-    } else {
-      // redirect to dashboard if successful
-      router.push("/");
-    }
+  if (authError) {
+    setError(authError.message);
+    return;
   }
+
+  const user = authResult.user;
+
+  // Step 2 — find the client associated with this auth user
+  const { data: mapping, error: mappingError } = await supabase
+    .from("client_users")
+    .select("client_id, role")
+    .eq("auth_id", user.id)
+    .single();
+
+  if (mappingError || !mapping) {
+    setError("Your account is not linked to any client.");
+    return;
+  }
+
+  // Step 3 — store client_id & role for dashboard usage
+  localStorage.setItem("client_id", mapping.client_id);
+  localStorage.setItem("role", mapping.role);
+
+  // Step 4 — redirect to dashboard
+  router.push("/");
+}
+
 
   return (
     <div 
