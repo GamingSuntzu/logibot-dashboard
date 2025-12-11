@@ -1,13 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 
+export const dynamic = "force-dynamic"; 
+// Ensures route is not statically optimized
+
 export async function POST(req: NextRequest) {
   try {
     let body = {};
 
     try {
-      body = await req.json(); // Try to parse JSON
-    } catch {
-      body = {}; // If empty or invalid JSON -> fallback
+      body = await req.json();
+    } catch (_) {
+      body = {};
     }
 
     console.log("📨 HITL: Create User", body);
