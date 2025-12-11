@@ -1,10 +1,12 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
 export async function DELETE(
-  req: Request,
-  { params }: { params: { sessionId: string } }
+  req: NextRequest,
+  context: { params: Promise<{ sessionId: string }> }
 ) {
-  console.log("📨 HITL: Stop Session", params.sessionId);
+  const { sessionId } = await context.params;
+
+  console.log("📨 HITL: Stop Session", sessionId);
 
   return NextResponse.json({ ok: true });
 }
