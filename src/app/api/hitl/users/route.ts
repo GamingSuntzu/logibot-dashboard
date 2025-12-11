@@ -2,17 +2,26 @@ import { NextRequest, NextResponse } from "next/server";
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json(); // Botpress sends JSON
+    let body = {};
+    try {
+      // Botpress will send JSON, but fail-safe parsing avoids runtime crashes
+      body = await req.json();
+    } catch {
+      body = {};
+    }
 
-    console.log("📨 HITL: Create User", body);
+    console.log("📨 HITL USERS POST:", body);
 
     return NextResponse.json({ ok: true });
-  } catch (err) {
-    console.error("❌ HITL Users Error:", err);
-    return NextResponse.json({ ok: false, error: "Server error" }, { status: 500 });
+  } catch (err: any) {
+    console.error("❌ HITL USERS ERROR:", err?.message || err);
+    return NextResponse.json(
+      { ok: false, error: err?.message || "Server error" },
+      { status: 500 }
+    );
   }
 }
 
 export async function GET() {
-  return NextResponse.json({ ok: true, message: "Users endpoint" });
+  return NextResponse.json({ ok: true, message: "Users endpoint working" });
 }
