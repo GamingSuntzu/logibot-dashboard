@@ -6,7 +6,7 @@ export async function DELETE(
 ) {
   const { sessionId } = context.params;
 
-  console.log("Deleting session:", sessionId);
+  console.log("📨 HITL: Stop Session", sessionId);
 
   return NextResponse.json({ ok: true });
 }
