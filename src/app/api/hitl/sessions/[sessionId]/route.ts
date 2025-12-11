@@ -1,14 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 
-// Next.js 16 bug: dynamic route context types incorrectly infer Promise<params>
-// This suppresses the incorrect Vercel type check.
 export async function DELETE(
-  request: NextRequest,
-  context: { params: { sessionId: string } }
+  req: Request,
+  { params }: { params: { sessionId: string } }
 ) {
-  const { sessionId } = context.params;
-
-  console.log("📨 HITL: Stop Session", sessionId);
+  console.log("📨 HITL: Stop Session", params.sessionId);
 
   return NextResponse.json({ ok: true });
 }
