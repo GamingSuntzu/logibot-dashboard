@@ -25,8 +25,9 @@ export default function AnalyticsPage() {
   const today = new Date();
   const [selectedMonth, setSelectedMonth] = useState(today.getMonth()); // 0–11
   const [selectedYear, setSelectedYear] = useState(today.getFullYear());
-  const [trackingUsage, setTrackingUsage] = useState(0);
-
+  const [availableFeatures, setAvailableFeatures] = useState([]);
+  const [selectedFeature, setSelectedFeature] = useState(null);
+  const [featureUsageCount, setFeatureUsageCount] = useState(0);
 
 
 
@@ -66,54 +67,118 @@ export default function AnalyticsPage() {
     async function fetchAnalytics() {
       setLoading(true);
 
-      const startOfMonth = new Date();
-      startOfMonth.setDate(1);
-      startOfMonth.setHours(0, 0, 0, 0);
+      const startOfMonth = new Date(selectedYear, selectedMonth, 1);
+      const endOfMonth = new Date(selectedYear, selectedMonth + 1, 0, 23, 59, 59);
 
-      // Total messages this month
-      const { count: total } = await supabase
+      // Total messages
+      const { count: total, error: totalErr } = await supabase
         .from("chat_logs")
-        .select("*", { count: "exact", head: true })
+        .select("id", { count: "exact", head: true })
         .eq("client_id", clientId)
-        .gte("created_at", startOfMonth.toISOString());
+        .gte("created_at", startOfMonth.toISOString())
+        .lte("created_at", endOfMonth.toISOString());
+
+      if (totalErr) console.error("Total messages error:", totalErr);
       setTotalMessages(total || 0);
 
-      // Unique users this month
-      const { data: users } = await supabase
+      // Unique users
+      const { data: users, error: usersErr } = await supabase
         .from("chat_logs")
         .select("end_user_id")
         .eq("client_id", clientId)
-        .gte("created_at", startOfMonth.toISOString());
+        .gte("created_at", startOfMonth.toISOString())
+        .lte("created_at", endOfMonth.toISOString());
+
+      if (usersErr) console.error("Unique users error:", usersErr);
       setUniqueUsers(users ? new Set(users.map((u) => u.end_user_id)).size : 0);
 
       // Messages grouped by sender
-      const { data: grouped } = await supabase
+      const { data: grouped, error: groupedErr } = await supabase
         .from("chat_logs")
         .select("sender")
         .eq("client_id", clientId)
-        .gte("created_at", startOfMonth.toISOString());
-      const counts = grouped?.reduce((acc, row) => {
-        acc[row.sender] = (acc[row.sender] || 0) + 1;
-        return acc;
-      }, {}) || {};
+        .gte("created_at", startOfMonth.toISOString())
+        .lte("created_at", endOfMonth.toISOString());
+
+      if (groupedErr) console.error("Grouped sender error:", groupedErr);
+
+      const counts =
+        grouped?.reduce((acc, row) => {
+          acc[row.sender] = (acc[row.sender] || 0) + 1;
+          return acc;
+        }, {}) || {};
+
       setMessagesBySender(counts);
 
-      // Tracking usage this month
-      const { count: tracking } = await supabase
+      // Get available features for this month (DECEMBER UPDATE)
+      const { data: featureRows, error: featureRowsErr } = await supabase
         .from("feature_usage")
-        .select("*", { count: "exact", head: true })
+        .select("feature")
         .eq("client_id", clientId)
-        .eq("feature", "tracking")
-        .gte("created_at", startOfMonth.toISOString());
+        .gte("created_at", startOfMonth.toISOString())
+        .lte("created_at", endOfMonth.toISOString());
 
-      setTrackingUsage(tracking || 0);
+      if (featureRowsErr) console.error("Feature list error:", featureRowsErr);
 
+      const uniqueFeatures = Array.from(
+        new Set((featureRows || []).map((r) => r.feature).filter(Boolean))
+      ).sort();
+
+      setAvailableFeatures(uniqueFeatures);
+
+      // Pick default feature if none selected or selected feature not in list (DEC UPDATE)
+      const nextSelected =
+        selectedFeature && uniqueFeatures.includes(selectedFeature)
+          ? selectedFeature
+          : uniqueFeatures[0] || null;
+
+      setSelectedFeature(nextSelected);
+
+      // 3) Count usage for selected feature
+      if (nextSelected) {
+        const { count, error } = await supabase
+          .from("feature_usage")
+          .select("id", { count: "exact", head: true })
+          .eq("client_id", clientId)
+          .eq("feature", nextSelected)
+          .gte("created_at", startOfMonth.toISOString())
+          .lte("created_at", endOfMonth.toISOString());
+
+        if (error) console.error("Feature usage count error:", error);
+        setFeatureUsageCount(count || 0);
+      } else {
+        setFeatureUsageCount(0);
+      }
 
       setLoading(false);
     }
 
     fetchAnalytics();
-  }, [clientId]);
+  }, [clientId, selectedMonth, selectedYear]);
+
+  useEffect(() => {
+  if (!clientId || !selectedFeature) return;
+
+  async function fetchSelectedFeatureCount() {
+    const startOfMonth = new Date(selectedYear, selectedMonth, 1);
+    const endOfMonth = new Date(selectedYear, selectedMonth + 1, 0, 23, 59, 59);
+
+    const { count, error } = await supabase
+      .from("feature_usage")
+      .select("id", { count: "exact", head: true })
+      .eq("client_id", clientId)
+      .eq("feature", selectedFeature)
+      .gte("created_at", startOfMonth.toISOString())
+      .lte("created_at", endOfMonth.toISOString());
+
+    if (error) console.error("Feature usage count error:", error);
+    setFeatureUsageCount(count || 0);
+  }
+
+  fetchSelectedFeatureCount();
+}, [clientId, selectedFeature, selectedMonth, selectedYear]);
+
+
 
   // Fetch chart data when KPI is clicked
   useEffect(() => {
@@ -132,6 +197,48 @@ export default function AnalyticsPage() {
       selectFields = "created_at";
     } else if (kpi === "unique") {
       selectFields = "end_user_id, created_at";
+    }
+
+    else if (kpi === "featureUsage") {
+      if (!selectedFeature) {
+        setChartData([{ day: "No Data", usage: 0 }]);
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("feature_usage")
+        .select("created_at")
+        .eq("client_id", clientId)
+        .eq("feature", selectedFeature)
+        .gte("created_at", startOfMonth.toISOString())
+        .lte("created_at", endOfMonth.toISOString())
+        .order("created_at", { ascending: true });
+
+      if (error) {
+        console.error("Error fetching feature usage data:", error);
+        setChartData([]);
+        return;
+      }
+
+      const daily = {};
+      data.forEach((row) => {
+        const day = new Date(row.created_at).toLocaleDateString("id-ID", {
+          day: "2-digit",
+          month: "short",
+        });
+        if (!daily[day]) daily[day] = { day, usage: 0 };
+        daily[day].usage += 1;
+      });
+
+      let cum = 0;
+      let formatted = Object.values(daily).map((d) => {
+        cum += d.usage;
+        return { day: d.day, usage: cum };
+      });
+
+      if (formatted.length === 0) formatted = [{ day: "No Data", usage: 0 }];
+      setChartData(formatted);
+      return;
     }
 
     const { data, error } = await supabase
@@ -221,47 +328,13 @@ export default function AnalyticsPage() {
       }
 
 
-      else if (kpi === "tracking") {
-        const { data, error } = await supabase
-          .from("feature_usage")
-          .select("created_at")
-          .eq("client_id", clientId)
-          .eq("feature", "tracking")
-          .gte("created_at", startOfMonth.toISOString())
-          .lte("created_at", endOfMonth.toISOString())
-          .order("created_at", { ascending: true });
-
-        if (error) {
-          console.error("Error fetching tracking data:", error);
-          setChartData([]);
-          return;
-        }
-
-        const daily = {};
-        data.forEach((row) => {
-          const day = new Date(row.created_at).toLocaleDateString("id-ID", {
-            day: "2-digit",
-            month: "short",
-          });
-          if (!daily[day]) daily[day] = { day, tracking: 0 };
-          daily[day].tracking += 1;
-        });
-
-        let cumTracking = 0;
-        let formatted = Object.values(daily).map((d) => {
-          cumTracking += d.tracking;
-          return { day: d.day, tracking: cumTracking };
-        });
-
-        if (formatted.length === 0) formatted = [{ day: "No Data", tracking: 0 }];
-        setChartData(formatted);
-      }
+      
 
     }
 
 
     fetchChartData(selectedKpi);
-  }, [selectedKpi, clientId, selectedMonth, selectedYear]);
+  }, [selectedKpi, clientId, selectedMonth, selectedYear, selectedFeature]);
 
   // Set the bubbles for display
   if (loading) {
@@ -271,13 +344,43 @@ export default function AnalyticsPage() {
       </div>
     )
   }
+  
+  const months = [
+    "January","February","March","April","May","June",
+    "July","August","September","October","November","December"
+  ];
 
   return (
     <div className="p-6 text-white">
-      <h1 className="text-2xl font-bold mb-6">📊 Analytics</h1>
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-6">
+        <h1 className="text-2xl font-bold">📊 Analytics</h1>
+
+        <div className="flex gap-3 md:justify-end">
+          <select
+            value={selectedMonth}
+            onChange={(e) => setSelectedMonth(Number(e.target.value))}
+            className="bg-gray-800 text-white p-2 rounded"
+          >
+            {months.map((m, i) => (
+              <option key={i} value={i}>{m}</option>
+            ))}
+          </select>
+
+          <select
+            value={selectedYear}
+            onChange={(e) => setSelectedYear(Number(e.target.value))}
+            className="bg-gray-800 text-white p-2 rounded"
+          >
+            {Array.from({ length: 5 }, (_, i) => today.getFullYear() - i).map((y) => (
+              <option key={y} value={y}>{y}</option>
+            ))}
+          </select>
+        </div>
+      </div>
 
       {/* KPI Grid, Desktop Layout*/}
       <div className="hidden md:grid md:grid-cols-3 gap-6">
+        
         {/* Total Messages */}
         <div
           className="bg-gray-800 p-4 rounded-xl shadow cursor-pointer hover:bg-gray-700"
@@ -318,11 +421,40 @@ export default function AnalyticsPage() {
         </div>
         {/* Tracking Usage */}
         <div
-          className="bg-gray-800 p-4 rounded-xl shadow cursor-pointer hover:bg-gray-700"
-          onClick={() => setSelectedKpi("tracking")}
+        className="bg-gray-800 p-4 rounded-xl shadow cursor-pointer hover:bg-gray-700"
+          onClick={() => setSelectedKpi("featureUsage")}
         >
-          <p className="text-sm text-gray-400">Tracking Usage This Month</p>            <p className="text-3xl font-bold text-purple-400">{trackingUsage}</p>
-        </div>  
+          <p className="text-sm text-gray-400">Feature Usage This Month</p>
+
+          <div className="mt-2 flex items-center justify-between gap-3">
+            <p className="text-3xl font-bold text-purple-400">{featureUsageCount}</p>
+
+            <select
+              value={selectedFeature || ""}
+              onChange={(e) => setSelectedFeature(e.target.value)}
+              className="bg-gray-700 text-white p-2 rounded text-sm"
+              disabled={availableFeatures.length === 0}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => e.stopPropagation()} // prevents opening chart when trying to open dropdown
+            >
+              {availableFeatures.length === 0 ? (
+                  <option value="">No features</option>
+              ) : (
+                availableFeatures.map((f) => (
+                  <option key={f} value={f}>
+                    {f}
+                  </option>
+                ))
+              )}
+            </select>
+          </div>
+
+          {selectedFeature && (
+            <p className="text-xs text-gray-400 mt-2">
+              Selected: <span className="text-gray-200">{selectedFeature}</span>
+            </p>
+          )}
+        </div> 
       </div>
 
       {/* Desktop Chart Section */}
@@ -333,37 +465,9 @@ export default function AnalyticsPage() {
             {selectedKpi === "messagesBySender" && "📈 Messages Over Time"}
             {selectedKpi === "total" && "📈 Total Messages Over Time"}
             {selectedKpi === "unique" && "📈 Unique Users Over Time"}
-            {selectedKpi === "tracking" && "📈 Tracking Usage Over Time"}
+            {selectedKpi === "featureUsage" && `📈 ${selectedFeature || "Feature"} Usage Over Time`}
 
           </h2>
-
-          {/* Month/Year Picker */}
-          <div className="flex gap-4 mb-6">
-            {/* Month dropdown */}
-            <select
-              value={selectedMonth}
-              onChange={(e) => setSelectedMonth(Number(e.target.value))}
-              className="bg-gray-800 text-white p-2 rounded"
-            >
-              {[
-                "January","February","March","April","May","June",
-                "July","August","September","October","November","December"
-              ].map((m, i) => (
-                <option key={i} value={i}>{m}</option>
-              ))}
-            </select>
-
-            {/* Year dropdown */}
-            <select
-              value={selectedYear}
-              onChange={(e) => setSelectedYear(Number(e.target.value))}
-              className="bg-gray-800 text-white p-2 rounded"
-            >
-              {Array.from({ length: 5 }, (_, i) => today.getFullYear() - i).map((y) => (
-                <option key={y} value={y}>{y}</option>
-              ))}
-            </select>
-          </div>
 
           {/* Chart */}
           {chartData.length > 0 ? (
@@ -390,8 +494,8 @@ export default function AnalyticsPage() {
                 <Line type="monotone" dataKey="unique" stroke="#ec4899" strokeWidth={2} />
               )}
 
-              {selectedKpi === "tracking" && (
-                <Line type="monotone" dataKey="tracking" stroke="#a855f7" strokeWidth={2} />
+              {selectedKpi === "featureUsage" && (
+                <Line type="monotone" dataKey="usage" stroke="#a855f7" strokeWidth={2} />
               )}
 
 
@@ -412,35 +516,10 @@ export default function AnalyticsPage() {
               {selectedKpi === "messagesBySender" && "📈 Messages Over Time"}
               {selectedKpi === "total" && "📈 Total Messages Over Time"}
               {selectedKpi === "unique" && "📈 Unique Users Over Time"}
-              {selectedKpi === "tracking" && "📈 Tracking Usage Over Time"}
+              {selectedKpi === "featureUsage" && `📈 ${selectedFeature || "Feature"} Usage Over Time`}
             </h2>
 
-            {/* Month/Year Picker */}
-            <div className="flex gap-2 mb-3">
-              <select
-                value={selectedMonth}
-                onChange={(e) => setSelectedMonth(Number(e.target.value))}
-                className="bg-gray-800 text-white p-2 rounded text-sm"
-              >
-                {[
-                  "January","February","March","April","May","June",
-                  "July","August","September","October","November","December"
-                ].map((m, i) => (
-                  <option key={i} value={i}>{m}</option>
-                ))}
-              </select>
-
-              <select
-                value={selectedYear}
-                onChange={(e) => setSelectedYear(Number(e.target.value))}
-                className="bg-gray-800 text-white p-2 rounded text-sm"
-              >
-                {Array.from({ length: 5 }, (_, i) => today.getFullYear() - i).map((y) => (
-                  <option key={y} value={y}>{y}</option>
-                ))}
-              </select>
-            </div>
-
+        
             {/* Chart with transition */}
             <div
               className={`transition-all duration-500 overflow-hidden ${
@@ -467,8 +546,8 @@ export default function AnalyticsPage() {
                   {selectedKpi === "unique" && (
                     <Line type="monotone" dataKey="unique" stroke="#ec4899" strokeWidth={2} />
                   )}
-                  {selectedKpi === "tracking" && (
-                    <Line type="monotone" dataKey="tracking" stroke="#a855f7" strokeWidth={2} />
+                  {selectedKpi === "featureUsage" && (
+                    <Line type="monotone" dataKey="usage" stroke="#a855f7" strokeWidth={2} />
                   )}
                 </LineChart>
               </ResponsiveContainer>
@@ -562,25 +641,43 @@ export default function AnalyticsPage() {
         </div>
 
         <div
-          onClick={() => setSelectedKpi(selectedKpi === "tracking" ? null : "tracking")}
+          onClick={() => setSelectedKpi(selectedKpi === "featureUsage" ? null : "featureUsage")}
           className={`p-4 rounded-xl shadow cursor-pointer transition-all duration-300 
             ${
-              selectedKpi === "tracking"
+              selectedKpi === "featureUsage"
               ? "bg-gray-700 ring-2 ring-purple-400 shadow-purple-400/20 scale-[1.02]"
               : "bg-gray-800 hover:bg-gray-700 hover:scale-[1.01]"
             }`}
         >
+          
+
           <div className="flex justify-between items-center">
             <div>
-              <p className="text-sm text-gray-400">Tracking Usage</p>
-              <p className="text-3xl font-bold text-purple-400">{trackingUsage}</p>
+              <p className="text-sm text-gray-400">Feature Usage</p>
+              <p className="text-3xl font-bold text-purple-400">{featureUsageCount}</p>
             </div>
-            {selectedKpi === "tracking" ? (
+            {selectedKpi === "featureUsage" ? (
               <FiBarChart2 className="text-purple-400 text-xl" />
             ) : (
               <FiChevronRight className="text-gray-400 text-xl" />
             )}
           </div>
+
+          <select
+            value={selectedFeature || ""}
+            onChange={(e) => setSelectedFeature(e.target.value)}
+            className="bg-gray-700 text-white p-2 rounded text-sm mt-2 w-full"
+            disabled={availableFeatures.length === 0}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {availableFeatures.length === 0 ? (
+              <option value="">No features</option>
+            ) : (
+              availableFeatures.map((f) => (
+                <option key={f} value={f}>{f}</option>
+              ))
+            )}
+          </select>
         </div>
       </div>
 
