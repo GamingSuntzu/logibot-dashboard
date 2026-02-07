@@ -22,8 +22,9 @@ export default function AnalyticsPage() {
   const [loading, setLoading] = useState(true);
   const [selectedKpi, setSelectedKpi] = useState(null);
   const [chartData, setChartData] = useState([]);
+  const [afterHoursMessages, setAfterHoursMessages] = useState(0);
   const today = new Date();
-  const [selectedMonth, setSelectedMonth] = useState(today.getMonth()); // 0–11
+  const [selectedMonth, setSelectedMonth] = useState(today.getMonth()); // 0ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ11
   const [selectedYear, setSelectedYear] = useState(today.getFullYear());
   const [availableFeatures, setAvailableFeatures] = useState([]);
   const [selectedFeature, setSelectedFeature] = useState(null);
@@ -31,7 +32,7 @@ export default function AnalyticsPage() {
 
 
 
-  // ✅ Auth check + client lookup
+  // ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¦ Auth check + client lookup
   useEffect(() => {
     async function checkAuthAndFetch() {
       const { data: { session } } = await supabase.auth.getSession();
@@ -60,7 +61,7 @@ export default function AnalyticsPage() {
     checkAuthAndFetch();
   }, []);
 
-  // ✅ Fetch analytics once we have clientId
+  //Fetch analytics once we have clientId
   useEffect(() => {
     if (!clientId) return;
 
@@ -109,6 +110,26 @@ export default function AnalyticsPage() {
         }, {}) || {};
 
       setMessagesBySender(counts);
+
+      // After-hours user messages (outside 9:00-18:00)
+      const { data: afterHoursRows, error: afterHoursErr } = await supabase
+        .from("chat_logs")
+        .select("created_at")
+        .eq("client_id", clientId)
+        .eq("sender", "user")
+        .gte("created_at", startOfMonth.toISOString())
+        .lte("created_at", endOfMonth.toISOString());
+
+      if (afterHoursErr) console.error("After-hours messages error:", afterHoursErr);
+
+      const afterHoursCount =
+        afterHoursRows?.reduce((acc, row) => {
+          const localHour = new Date(row.created_at).getHours();
+          const isAfterHours = localHour < 9 || localHour >= 18;
+          return acc + (isAfterHours ? 1 : 0);
+        }, 0) || 0;
+
+      setAfterHoursMessages(afterHoursCount);
 
       // Get available features for this month (DECEMBER UPDATE)
       const { data: featureRows, error: featureRowsErr } = await supabase
@@ -191,12 +212,14 @@ export default function AnalyticsPage() {
 
       let selectFields = "";
 
-      if (kpi === "messagesBySender") {
+    if (kpi === "messagesBySender") {
       selectFields = "sender, created_at";
     } else if (kpi === "total") {
       selectFields = "created_at";
     } else if (kpi === "unique") {
       selectFields = "end_user_id, created_at";
+    } else if (kpi === "afterHours") {
+      selectFields = "created_at";
     }
 
     else if (kpi === "featureUsage") {
@@ -241,14 +264,19 @@ export default function AnalyticsPage() {
       return;
     }
 
-    const { data, error } = await supabase
-       .from("chat_logs")
-       .select(selectFields)
-       .eq("client_id", clientId)
-       .gte("created_at", startOfMonth.toISOString())
-       .lte("created_at", endOfMonth.toISOString())
-       .order("created_at", { ascending: true });
+    let query = supabase
+      .from("chat_logs")
+      .select(selectFields)
+      .eq("client_id", clientId)
+      .gte("created_at", startOfMonth.toISOString())
+      .lte("created_at", endOfMonth.toISOString())
+      .order("created_at", { ascending: true });
 
+    if (kpi === "afterHours") {
+      query = query.eq("sender", "user");
+    }
+
+    const { data, error } = await query;
 
       if (error) {
         console.error("Error fetching chart data:", error);
@@ -325,14 +353,32 @@ export default function AnalyticsPage() {
 
         if (formatted.length === 0) formatted = [{ day: "No Data", unique: 0 }];
         setChartData(formatted);
+      } else if (kpi === "afterHours") {
+        data.forEach((row) => {
+          const localHour = new Date(row.created_at).getHours();
+          const isAfterHours = localHour < 9 || localHour >= 18;
+          if (!isAfterHours) return;
+
+          const day = new Date(row.created_at).toLocaleDateString("id-ID", {
+            day: "2-digit",
+            month: "short",
+          });
+          if (!daily[day]) daily[day] = { day, afterHours: 0 };
+          daily[day].afterHours += 1;
+        });
+
+        let cumAfterHours = 0;
+        let formatted = Object.values(daily).map((d) => {
+          cumAfterHours += d.afterHours;
+          return { day: d.day, afterHours: cumAfterHours };
+        });
+
+        if (formatted.length === 0) {
+          formatted = [{ day: "No Data", afterHours: 0 }];
+        }
+        setChartData(formatted);
       }
-
-
-      
-
     }
-
-
     fetchChartData(selectedKpi);
   }, [selectedKpi, clientId, selectedMonth, selectedYear, selectedFeature]);
 
@@ -353,7 +399,7 @@ export default function AnalyticsPage() {
   return (
     <div className="p-6 text-white">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-6">
-        <h1 className="text-2xl font-bold">📊 Analytics</h1>
+        <h1 className="text-2xl font-bold">Analytics</h1>
 
         <div className="flex gap-3 md:justify-end">
           <select
@@ -419,6 +465,15 @@ export default function AnalyticsPage() {
             </div>
           </div>
         </div>
+        {/* After-hours Messages */}
+        <div
+          className="bg-gray-800 p-4 rounded-xl shadow cursor-pointer hover:bg-gray-700"
+          onClick={() => setSelectedKpi("afterHours")}
+        >
+          <p className="text-sm text-gray-400">After-hours Messages This Month</p>
+          <p className="text-3xl font-bold text-orange-400">{afterHoursMessages}</p>
+          <p className="text-xs text-gray-400 mt-2">User messages outside 9am-6pm</p>
+        </div>
         {/* Tracking Usage */}
         <div
         className="bg-gray-800 p-4 rounded-xl shadow cursor-pointer hover:bg-gray-700"
@@ -462,11 +517,11 @@ export default function AnalyticsPage() {
         <div className="hidden md:block bg-gray-900 p-6 rounded-xl shadow mt-8">
           {/* Dynamic title */}
           <h2 className="text-lg font-semibold mb-4">
-            {selectedKpi === "messagesBySender" && "📈 Messages Over Time"}
-            {selectedKpi === "total" && "📈 Total Messages Over Time"}
-            {selectedKpi === "unique" && "📈 Unique Users Over Time"}
-            {selectedKpi === "featureUsage" && `📈 ${selectedFeature || "Feature"} Usage Over Time`}
-
+            {selectedKpi === "messagesBySender" && "Messages Over Time"}
+            {selectedKpi === "total" && "Total Messages Over Time"}
+            {selectedKpi === "unique" && "Unique Users Over Time"}
+            {selectedKpi === "afterHours" && "After-hours Messages Over Time"}
+            {selectedKpi === "featureUsage" && `${selectedFeature || "Feature"} Usage Over Time`}
           </h2>
 
           {/* Chart */}
@@ -493,6 +548,9 @@ export default function AnalyticsPage() {
               {selectedKpi === "unique" && (
                 <Line type="monotone" dataKey="unique" stroke="#ec4899" strokeWidth={2} />
               )}
+              {selectedKpi === "afterHours" && (
+                <Line type="monotone" dataKey="afterHours" stroke="#fb923c" strokeWidth={2} />
+              )}
 
               {selectedKpi === "featureUsage" && (
                 <Line type="monotone" dataKey="usage" stroke="#a855f7" strokeWidth={2} />
@@ -509,14 +567,15 @@ export default function AnalyticsPage() {
 
       {/* --- MOBILE LAYOUT (clean KPIs + top chart) --- */}
       <div className="block md:hidden space-y-4">
-        {/* Chart at top — only visible when KPI selected */}
+        {/* Chart at top - only visible when KPI selected */}
         {selectedKpi && (
           <div className="bg-gray-900 p-4 rounded-xl shadow">
             <h2 className="text-base font-semibold mb-3">
-              {selectedKpi === "messagesBySender" && "📈 Messages Over Time"}
-              {selectedKpi === "total" && "📈 Total Messages Over Time"}
-              {selectedKpi === "unique" && "📈 Unique Users Over Time"}
-              {selectedKpi === "featureUsage" && `📈 ${selectedFeature || "Feature"} Usage Over Time`}
+              {selectedKpi === "messagesBySender" && "Messages Over Time"}
+              {selectedKpi === "total" && "Total Messages Over Time"}
+              {selectedKpi === "unique" && "Unique Users Over Time"}
+              {selectedKpi === "afterHours" && "After-hours Messages Over Time"}
+              {selectedKpi === "featureUsage" && `${selectedFeature || "Feature"} Usage Over Time`}
             </h2>
 
         
@@ -545,6 +604,9 @@ export default function AnalyticsPage() {
                   )}
                   {selectedKpi === "unique" && (
                     <Line type="monotone" dataKey="unique" stroke="#ec4899" strokeWidth={2} />
+                  )}
+                  {selectedKpi === "afterHours" && (
+                    <Line type="monotone" dataKey="afterHours" stroke="#fb923c" strokeWidth={2} />
                   )}
                   {selectedKpi === "featureUsage" && (
                     <Line type="monotone" dataKey="usage" stroke="#a855f7" strokeWidth={2} />
@@ -634,6 +696,29 @@ export default function AnalyticsPage() {
             </div>
             {selectedKpi === "messagesBySender" ? (
               <FiBarChart2 className="text-blue-400 text-xl" />
+            ) : (
+              <FiChevronRight className="text-gray-400 text-xl" />
+            )}
+          </div>
+        </div>
+
+        <div
+          onClick={() => setSelectedKpi(selectedKpi === "afterHours" ? null : "afterHours")}
+          className={`p-4 rounded-xl shadow cursor-pointer transition-all duration-300 
+            ${
+              selectedKpi === "afterHours"
+              ? "bg-gray-700 ring-2 ring-orange-400 shadow-orange-400/20 scale-[1.02]"
+              : "bg-gray-800 hover:bg-gray-700 hover:scale-[1.01]"
+            }`}
+        >
+          <div className="flex justify-between items-center">
+            <div>
+              <p className="text-sm text-gray-400">After-hours Messages</p>
+              <p className="text-3xl font-bold text-orange-400">{afterHoursMessages}</p>
+              <p className="text-xs text-gray-500 mt-1">Outside 9am-6pm</p>
+            </div>
+            {selectedKpi === "afterHours" ? (
+              <FiBarChart2 className="text-orange-400 text-xl" />
             ) : (
               <FiChevronRight className="text-gray-400 text-xl" />
             )}
