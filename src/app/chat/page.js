@@ -5,6 +5,7 @@ import { supabase } from '../../../lib/supabaseClient'
 import { FiSearch, FiFlag, FiArrowLeft } from "react-icons/fi"; // feather search icon
 import { FaExclamationCircle, FaWhatsapp, FaInstagram, FaFacebookMessenger } from "react-icons/fa";
 import { IoGlobeOutline } from "react-icons/io5"; // fallback for web/unknown
+import { useSearchParams } from "next/navigation"
 
 export default function Home() {
   const [users, setUsers] = useState([])
@@ -15,6 +16,15 @@ export default function Home() {
   const [searchTerm, setSearchTerm] = useState("")
   const messageChannelRef = useRef(null)
   const [maskIdentifiers, setMaskIdentifiers] = useState(true)
+  const [selectedUserObj, setSelectedUserObj] = useState(null)     // store full user object
+  const [threads, setThreads] = useState([])
+  const [selectedThread, setSelectedThread] = useState(null)       // { type: 'bp'|'legacy', id: string|null, ... }
+  const searchParams = useSearchParams()
+  const endUserIdParam = searchParams.get("end_user_id")
+  const convoIdParam = searchParams.get("conversation_id")
+
+  const didAutoOpenRef = useRef(false)
+
 
   // ✅ detect mobile
   const [isMobile, setIsMobile] = useState(false)
@@ -69,6 +79,23 @@ export default function Home() {
       year: "numeric",
     });
   }
+
+  function getViewLabel(selectedThread) {
+    if (!selectedThread) return null
+
+    if (selectedThread.type === "all") return "All history"
+    if (selectedThread.type === "legacy") return "Legacy / Unthreaded"
+
+    // Botpress conversation thread
+    if (selectedThread.type === "bp") {
+      // If you stored started_at on the thread object, show it
+      if (selectedThread.started_at) return `Thread • ${formatTimestamp(selectedThread.started_at)}`
+      return "Thread"
+    }
+
+    return null
+  }
+
 
   function ChannelIcon({ channel }) {
     switch (channel) {
@@ -136,6 +163,143 @@ export default function Home() {
       chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight
     }
   }, [messages])
+
+  // Fetch messages when a user is clicked n refresh the subscription for the specific user
+  const fetchMessages = async (user) => {
+
+    // ✅ mark that we’re viewing full history (not a specific thread)
+    setSelectedThread({ type: 'all', id: 'all' })
+    setSelectedUserObj(user) // keep selected user object in sync
+
+    // Save the user's id (phone_number or end_user_id) in state
+    setSelectedUser(user.id)
+
+    // Clean up previous subscription (if there is)
+    if (messageChannelRef.current) {
+      supabase.removeChannel(messageChannelRef.current)
+      messageChannelRef.current = null
+    }
+
+    // 1. Fetch existing messages
+    let query = supabase
+      .from('chat_logs')
+      .select('message, sender, created_at, phone_number, end_user_id')
+      .eq('client_id', clientId)
+      .order('created_at', { ascending: true })
+
+    if (user.phone_number) {
+      query = query.eq('phone_number', user.phone_number)
+    } else {
+      query = query.eq('end_user_id', user.end_user_id)
+    }
+
+    const { data, error } = await query
+
+    if (!error) {
+      setMessages(data)
+    } else {
+      console.error(error)
+    }
+
+    // 2. Subscribe to realtime inserts for this specific user
+    const filter = user.phone_number
+      ? `client_id=eq.${clientId} AND phone_number=eq.${user.phone_number}`
+      : `client_id=eq.${clientId} AND end_user_id=eq.${user.end_user_id}`
+
+    const channel = supabase
+      .channel(`chat_logs_${user.id}_${Date.now()}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'chat_logs', filter },
+        (payload) => {
+          setMessages(prev => [...prev, payload.new])
+        }
+      )
+      .subscribe()
+
+    // Save the active channel to be able to clean it later
+    messageChannelRef.current = channel
+  }
+
+  const openAllHistory = async () => {
+    if (!selectedUserObj) return
+    await fetchMessages(selectedUserObj)
+  }
+
+  const fetchThreads = async (user, preferredConversationId = null) => {
+    setSelectedUser(user.id)
+    setSelectedUserObj(user)
+    setSelectedThread(null)
+    setMessages([])
+    setThreads([])
+
+    const { data: convoRows, error: convoErr } = await supabase
+      .from('conversations')
+      .select('bp_conversation_id, started_at, last_message_at, last_message_preview, last_sender, message_count')
+      .eq('client_id', clientId)
+      .eq('end_user_id', user.end_user_id)
+      .order('last_message_at', { ascending: false })
+
+    if (convoErr) console.error(convoErr)
+
+    const convoThreads = (convoRows || []).map(r => ({
+      type: 'bp',
+      id: r.bp_conversation_id,
+      started_at: r.started_at,
+      last_message_at: r.last_message_at,
+      preview: r.last_message_preview,
+      last_sender: r.last_sender,
+      message_count: r.message_count
+    }))
+
+    // legacy count
+    let legacyCount = 0
+    {
+      let q = supabase
+        .from('chat_logs')
+        .select('id', { count: 'exact', head: true })
+        .eq('client_id', clientId)
+        .is('conversation_id', null)
+
+      if (user.phone_number) q = q.eq('phone_number', user.phone_number)
+      else q = q.eq('end_user_id', user.end_user_id)
+
+      const { count, error } = await q
+      if (error) console.error(error)
+      legacyCount = count || 0
+    }
+
+    if (legacyCount > 0) {
+      convoThreads.push({
+        type: 'legacy',
+        id: null,
+        started_at: null,
+        last_message_at: null,
+        preview: `Legacy messages (${legacyCount})`,
+        last_sender: null,
+        message_count: legacyCount
+      })
+    }
+
+    setThreads(convoThreads)
+
+    // ✅ guard against bad "null" param
+    const pref =
+      preferredConversationId && preferredConversationId !== 'null' ? preferredConversationId : null
+
+    if (convoThreads.length > 0) {
+      let toOpen = null
+
+      if (pref) {
+        toOpen = convoThreads.find(t => t.type === 'bp' && t.id === pref)
+        if (!toOpen) toOpen = { type: 'bp', id: pref, started_at: null }
+      } else {
+        toOpen = convoThreads[0]
+      }
+
+      await openThread(user, toOpen)
+    }
+  }
 
 
   // Fetch unique users and realtime update hook
@@ -206,57 +370,112 @@ export default function Home() {
     }
   }, [clientId, selectedUser])
 
-  // Fetch messages when a user is clicked n refresh the subscription for the specific user
-  const fetchMessages = async (user) => {
-    // Save the user's id (phone_number or end_user_id) in state
-    setSelectedUser(user.id)
+  const openThread = async (user, thread) => {
+    setSelectedThread(thread)
 
-    // Clean up previous subscription (if there is)
     if (messageChannelRef.current) {
       supabase.removeChannel(messageChannelRef.current)
       messageChannelRef.current = null
     }
 
-    // 1. Fetch existing messages
-    let query = supabase
+    let q = supabase
       .from('chat_logs')
-      .select('message, sender, created_at, phone_number, end_user_id')
+      .select('message, sender, created_at, phone_number, end_user_id, conversation_id')
       .eq('client_id', clientId)
       .order('created_at', { ascending: true })
 
-    if (user.phone_number) {
-      query = query.eq('phone_number', user.phone_number)
+    if (thread.type === 'bp') {
+      q = q.eq('conversation_id', thread.id)
+      // ✅ extra safety
+      if (user.phone_number) q = q.eq('phone_number', user.phone_number)
+      else q = q.eq('end_user_id', user.end_user_id)
     } else {
-      query = query.eq('end_user_id', user.end_user_id)
+      q = q.is('conversation_id', null)
+      if (user.phone_number) q = q.eq('phone_number', user.phone_number)
+      else q = q.eq('end_user_id', user.end_user_id)
     }
 
-    const { data, error } = await query
+    const { data, error } = await q
+    if (error) console.error(error)
+    else setMessages(data || [])
 
-    if (!error) {
-      setMessages(data)
-    } else {
-      console.error(error)
-    }
-
-    // 2. Subscribe to realtime inserts for this specific user
-    const filter = user.phone_number
-      ? `client_id=eq.${clientId} AND phone_number=eq.${user.phone_number}`
-      : `client_id=eq.${clientId} AND end_user_id=eq.${user.end_user_id}`
+    const filter =
+      thread.type === 'bp'
+        ? (user.phone_number
+          ? `client_id=eq.${clientId} AND conversation_id=eq.${thread.id} AND phone_number=eq.${user.phone_number}`
+          : `client_id=eq.${clientId} AND conversation_id=eq.${thread.id} AND end_user_id=eq.${user.end_user_id}`)
+        : (user.phone_number
+          ? `client_id=eq.${clientId} AND phone_number=eq.${user.phone_number} AND conversation_id=is.null`
+          : `client_id=eq.${clientId} AND end_user_id=eq.${user.end_user_id} AND conversation_id=is.null`)
 
     const channel = supabase
-      .channel(`chat_logs_${user.id}_${Date.now()}`)
+      .channel(`chat_thread_${user.id}_${thread.type}_${thread.id || 'legacy'}_${Date.now()}`)
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'chat_logs', filter },
-        (payload) => {
-          setMessages(prev => [...prev, payload.new])
-        }
+        (payload) => setMessages(prev => [...prev, payload.new])
       )
       .subscribe()
 
-    // Save the active channel to be able to clean it later
     messageChannelRef.current = channel
   }
+
+
+  useEffect(() => {
+    if (didAutoOpenRef.current) return
+    if (!clientId) return
+    if (!endUserIdParam) return
+
+    // ✅ mark immediately to avoid double-run during async
+    didAutoOpenRef.current = true
+
+    const run = async () => {
+      // 1) try sidebar first (if loaded)
+      let user = users?.find(u => u.end_user_id === endUserIdParam)
+
+      // 2) fallback to user_map
+      if (!user) {
+        const { data, error } = await supabase
+          .from("user_map")
+          .select("end_user_id, phone_number, channel, is_flagged, is_priority")
+          .eq("client_id", clientId)
+          .eq("end_user_id", endUserIdParam)
+          .maybeSingle()
+
+        if (!error && data) {
+          user = {
+            id: data.phone_number || data.end_user_id,
+            phone_number: data.phone_number,
+            end_user_id: data.end_user_id,
+            client_id: clientId,
+            channel: data.channel || "unknown",
+            is_flagged: data.is_flagged || false,
+            is_priority: data.is_priority || false
+          }
+        }
+      }
+
+      if (!user) return
+
+      // Mobile stays minimal: show all history
+      if (isMobile) {
+        await fetchMessages(user)
+        return
+      }
+
+      // Desktop: open specific thread if provided, else open newest thread
+      const convoId = convoIdParam && convoIdParam !== "null" ? convoIdParam : null
+      if (convoId) {
+        await fetchThreads(user, convoId)
+      } else {
+        await fetchThreads(user)
+      }
+    }
+
+    run()
+  }, [clientId, endUserIdParam, convoIdParam, isMobile, users])
+
+
 
   // Toggle user flag/priority
   const toggleFlag = async (user, type) => {
@@ -279,6 +498,8 @@ export default function Home() {
       console.error("Error updating flag:", error);
     }
   };
+
+  const viewLabel = getViewLabel(selectedThread)
 
   return (
     <div className="flex h-full w-full overflow-hidden flex-col md:flex-row">
@@ -387,7 +608,7 @@ export default function Home() {
                         alignItems: 'center',
                         justifyContent: 'space-between'
                       }}
-                      onClick={() => fetchMessages(user)} // // pass full object
+                      onClick={() => fetchThreads(user)} // // pass full object
                     >
                       {/* Left side: user identifier */}
                       <span style={{ display: "flex", alignItems: "center" }}>
@@ -416,14 +637,112 @@ export default function Home() {
             </div>
           </aside>
 
+          {/* Threads Panel */}
+          <aside
+            style={{
+              width: '360px',
+              background: '#0b1220',
+              borderRight: '1px solid #1e293b',
+              display: 'flex',
+              flexDirection: 'column',
+              height: '100vh'
+            }}
+          >
+            <div style={{ padding: '15px', borderBottom: '1px solid #1e293b' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <h2 style={{ margin: 0 }}>Threads</h2>
+
+                <button
+                  onClick={openAllHistory}
+                  disabled={!selectedUserObj}
+                  style={{
+                    fontSize: 12,
+                    padding: '6px 10px',
+                    borderRadius: 8,
+                    border: '1px solid #1e293b',
+                    background: selectedThread?.type === 'all' ? '#154a7d' : 'transparent',
+                    color: 'white',
+                    opacity: selectedUserObj ? 1 : 0.5,
+                    cursor: selectedUserObj ? 'pointer' : 'not-allowed'
+                  }}
+                  title="Show full history for this user"
+                >
+                  All history
+                </button>
+              </div>
+
+              <div style={{ fontSize: 12, opacity: 0.7, marginTop: 6 }}>
+                {selectedUserObj ? `User: ${displayIdentifier(selectedUserObj)}` : 'Select a user'}
+              </div>
+            </div>
+
+
+            <div style={{ flex: 1, overflowY: 'auto' }} className="custom-scrollbar">
+              {!selectedUserObj ? (
+                <div style={{ padding: 15, opacity: 0.7 }}>Select a user to view threads</div>
+              ) : threads.length === 0 ? (
+                <div style={{ padding: 15, opacity: 0.7 }}>No threads</div>
+              ) : (
+                <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                  {threads.map((t, idx) => (
+                    <li
+                      key={idx}
+                      onClick={() => openThread(selectedUserObj, t)}
+                      style={{
+                        padding: '12px 14px',
+                        borderBottom: '1px solid #1e293b',
+                        cursor: 'pointer',
+                        background:
+                          selectedThread?.type === t.type && selectedThread?.id === t.id ? '#111c31' : 'transparent'
+                      }}
+                    >
+                      <div style={{ fontSize: 12, opacity: 0.8 }}>
+                        {t.type === 'legacy'
+                          ? 'Legacy / Unthreaded'
+                          : (t.started_at ? formatTimestamp(t.started_at) : 'Thread')}
+                      </div>
+                      <div style={{ marginTop: 4, fontSize: 13 }}>
+                        {t.preview || '(no preview)'}
+                      </div>
+                      <div style={{ marginTop: 6, fontSize: 11, opacity: 0.7 }}>
+                        {t.type === 'legacy' ? `${t.message_count} msg` : `${t.message_count} msg • last: ${formatTimestamp(t.last_message_at)}`}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </aside>
+
+
 
           {/* Main Chat Window */}
           <main className="flex-1 bg-[#0f172a] text-white flex flex-col min-h-0">
-            <h1 style={{ padding: '20px', borderBottom: '1px solid #1e293b' }}>
-              {selectedUser
-                ? `Conversation with ${displayIdentifier(users.find(u => u.id === selectedUser)) || selectedUser}`
-                : 'Chat Window'}
-            </h1>
+            <div style={{ padding: '20px', borderBottom: '1px solid #1e293b', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h1 style={{ margin: 0 }}>
+                {selectedUser
+                  ? `Conversation with ${displayIdentifier(users.find(u => u.id === selectedUser)) || selectedUser}`
+                  : 'Chat Window'}
+              </h1>
+
+              {selectedUser && viewLabel && (
+                <span
+                  style={{
+                    fontSize: 12,
+                    padding: '6px 10px',
+                    borderRadius: 999,
+                    border: '1px solid #1e293b',
+                    background: '#111c31',
+                    color: 'white',
+                    opacity: 0.9
+                  }}
+                  title="Current view mode"
+                >
+                  {viewLabel}
+                </span>
+              )}
+            </div>
+
 
             <div
               ref={chatContainerRef} // attach ref here
@@ -569,8 +888,8 @@ export default function Home() {
                   >
                     <div
                       className={`px-3 py-2 rounded-2xl max-w-[75%] ${msg.sender === "user"
-                          ? "bg-blue-600 text-white"
-                          : "bg-gray-200 text-black"
+                        ? "bg-blue-600 text-white"
+                        : "bg-gray-200 text-black"
                         }`}
                     >
                       <p>{msg.message}</p>
